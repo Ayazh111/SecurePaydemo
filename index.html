@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="kk">
+<head>
+<meta charset="UTF-8">
+<title>SecurePay Mobile</title>
+
+<style>
+body{font-family:Arial;background:#f4f6f9;padding:30px}
+.container{max-width:900px;margin:auto}
+.card{background:#fff;padding:20px;border-radius:10px;
+box-shadow:0 5px 15px rgba(0,0,0,.1);margin-bottom:20px}
+.hidden{display:none}
+
+button{padding:10px;width:100%;margin-top:10px;
+background:#2f80ed;color:#fff;border:none;border-radius:8px;cursor:pointer}
+
+input{width:100%;padding:10px;margin:6px 0}
+
+.error{color:red}
+.notice{background:#eaf4ff;padding:10px;border-radius:8px;margin:10px 0}
+
+.secure-indicator{
+ background:#e6fff1;color:#008000;
+ padding:10px;border-radius:8px;
+ text-align:center;font-weight:bold;
+ animation:pulse 1.2s infinite;
+}
+
+.popup{
+ position:fixed;top:20px;right:20px;
+ background:#2f80ed;color:#fff;
+ padding:15px;border-radius:10px;display:none
+}
+
+@keyframes pulse{0%{opacity:.3}50%{opacity:1}100%{opacity:.3}}
+</style>
+</head>
+
+<body>
+
+<div class="popup" id="push"></div>
+
+<div class="container">
+
+<!-- SHOP -->
+<div id="shop" class="card">
+<h2>🛒 Тауарлар</h2>
+
+<div class="secure-indicator">🔒 Secure Connection (TLS 1.3)</div>
+
+<button onclick="add('Смартфон',250000)">📱 Смартфон — 250 000 ₸</button>
+<button onclick="add('Ноутбук',450000)">💻 Ноутбук — 450 000 ₸</button>
+<button onclick="add('Құлаққап',80000)">🎧 Құлаққап — 80 000 ₸</button>
+
+<h3>Корзина: <span id="cartItems">0</span> ₸</h3>
+<button onclick="goPay()">Төлемге өту</button>
+<p id="shopErr" class="error"></p>
+</div>
+
+<!-- PAYMENT -->
+<div id="pay" class="card hidden">
+<h2>💳 Қауіпсіз төлем</h2>
+
+<div class="notice">🔐 Карта деректері шифрланған және сақталмайды</div>
+
+<input id="card" placeholder="Карта нөмірі (16 сан)"
+       maxlength="16" inputmode="numeric" oninput="onlyDigits(this)">
+
+<input id="exp" placeholder="MM/YY"
+       maxlength="5" oninput="formatExpiry(this)">
+
+<input id="cvv" type="password" placeholder="CVV"
+       maxlength="3" inputmode="numeric" oninput="onlyDigits(this)">
+
+<button onclick="pay()">Төлемді растау</button>
+<p id="payErr" class="error"></p>
+</div>
+
+<!-- OTP -->
+<div id="otp" class="card hidden">
+<h2>🔔 OTP растау</h2>
+<p>⏳ Уақыт: <span id="t">60</span> сек</p>
+
+<input id="otpInput" placeholder="6 санды код"
+       maxlength="6" inputmode="numeric" oninput="onlyDigits(this)">
+
+<button onclick="checkOTP()">Растау</button>
+
+<p id="otpErr" class="error"></p>
+<p id="lockMsg" class="error hidden">❌ 3 рет қате. Төлем бұғатталды.</p>
+</div>
+
+<!-- SUCCESS -->
+<div id="done" class="card hidden">
+<h2>✅ Төлем сәтті өтті</h2>
+<p>📲 Push-хабарлама жіберілді</p>
+</div>
+
+</div>
+
+<script>
+let cartTotal=0, cartList=[], otp="", tries=0, time=60, timer;
+
+function show(id){
+ document.querySelectorAll(".card").forEach(c=>c.classList.add("hidden"));
+ document.getElementById(id).classList.remove("hidden");
+}
+
+// SHOP
+function add(name,price){
+ cartList.push(name);
+ cartTotal+=price;
+ cartItems.innerText=cartTotal;
+}
+
+function goPay(){
+ if(cartList.length===0){
+   shopErr.innerText="❗ Тауар таңдаңыз";
+   return;
+ }
+ show("pay");
+}
+
+// Тек сан
+function onlyDigits(i){
+ i.value=i.value.replace(/\D/g,'');
+}
+
+// MM/YY авто формат
+function formatExpiry(i){
+ let v=i.value.replace(/\D/g,'');
+ if(v.length>=3){
+   i.value=v.substring(0,2)+'/'+v.substring(2,4);
+ }else{
+   i.value=v;
+ }
+}
+
+// Биометрия (имитация)
+function biometric(){
+ return confirm("👆 Биометриялық тексеріс: растау");
+}
+
+// Luhn
+function validCard(n){
+ let s=0,a=false;
+ for(let i=n.length-1;i>=0;i--){
+   let d=parseInt(n[i]);
+   if(a){d*=2;if(d>9)d-=9;}
+   s+=d;a=!a;
+ }
+ return s%10===0;
+}
+
+// PAYMENT
+function pay(){
+ payErr.innerText="";
+ if(!biometric()){
+   payErr.innerText="Биометриялық тексеріс өтпеді";
+   return;
+ }
+
+ const c=card.value.trim();
+ const e=exp.value.trim();
+ const v=cvv.value.trim();
+
+ if(!/^\d{16}$/.test(c)||!validCard(c)){
+   payErr.innerText="Карта нөмірі қате"; return;
+ }
+
+ if(!/^\d{2}\/\d{2}$/.test(e)){
+   payErr.innerText="Мерзім форматы қате"; return;
+ }
+
+ let [m,y]=e.split("/").map(Number);
+ let now=new Date();
+ let curM=now.getMonth()+1;
+ let curY=now.getFullYear()%100;
+
+ if(m<1||m>12||y<curY||(y===curY&&m<curM)){
+   payErr.innerText="Карта мерзімі өтіп кеткен"; return;
+ }
+
+ if(!/^\d{3}$/.test(v)){
+   payErr.innerText="CVV қате"; return;
+ }
+
+ // OTP
+ otp=Math.floor(100000+Math.random()*900000).toString();
+ tries=0; time=60;
+ otpInput.value="";
+ lockMsg.classList.add("hidden");
+
+ push.innerHTML="🔔 SecurePay OTP: "+otp;
+ push.style.display="block";
+ setTimeout(()=>push.style.display="none",5000);
+
+ startTimer();
+ show("otp");
+}
+
+function startTimer(){
+ clearInterval(timer);
+ timer=setInterval(()=>{
+   t.innerText=time--;
+   if(time<0){
+     clearInterval(timer);
+     otpErr.innerText="⏰ Уақыт бітті";
+   }
+ },1000);
+}
+
+// OTP
+function checkOTP(){
+ if(tries>=3) return;
+ if(otpInput.value===otp){
+   clearInterval(timer);
+   alert("📲 Push: Төлем сәтті өтті");
+   show("done");
+ }else{
+   tries++;
+   otpErr.innerText="OTP қате";
+   if(tries>=3){
+     lockMsg.classList.remove("hidden");
+   }
+ }
+}
+</script>
+
+</body>
+</html>
